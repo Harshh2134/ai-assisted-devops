@@ -25,11 +25,18 @@ def clean_output(text: Optional[str]) -> str:
     return cleaned.replace("\r", "")
 
 
-def run_cmd(child, cmd: str) -> str:
+def run_cmd(child, cmd: str, timeout: int = 20) -> str:
     """Execute a command on the remote device and return its stdout."""
     child.sendline(cmd)
-    child.expect(PROMPT_RE, timeout=20)
-    return clean_output(child.before)
+    child.expect(PROMPT_RE, timeout=timeout)
+
+    raw = clean_output(child.before)
+    lines = [line for line in raw.splitlines() if line.strip()]
+
+    if lines and lines[0].strip() == cmd:
+        lines = lines[1:]
+
+    return "\n".join(lines)
 
 
 def list_hour_folders(child, date: str) -> List[str]:
@@ -61,13 +68,16 @@ def _extract_base64_payload(raw: str, cmd: str) -> str:
 
 
 def fast_download(child, remote_path: str, local_path: str) -> None:
-    size_out = run_cmd(child, f"stat -c %s '{remote_path}'")
-    match = re.search(r"\d+", size_out)
-    if not match:
+    size_out = run_cmd(child, f"wc -c < '{remote_path}'")
+    lines = [line.strip() for line in size_out.splitlines() if line.strip()]
+
+    match_line = next((line for line in reversed(lines) if line.isdigit()), "")
+
+    if not match_line:
         print(f"❌ Size error: {remote_path}")
         return
 
-    total_size = int(match.group(0))
+    total_size = int(match_line)
     print(f"➡ Copying {os.path.basename(local_path)} ({total_size} bytes)")
 
     with open(local_path, "wb") as f:
