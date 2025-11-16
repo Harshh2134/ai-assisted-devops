@@ -56,11 +56,8 @@ def list_ts_files(child, date: str, folder: str) -> List[str]:
 
 def _extract_base64_payload(raw: str) -> str:
     """Return a contiguous base64 payload delimited by chunk markers."""
-    match = re.search(
-        rf"{CHUNK_BEGIN}\s*(?P<data>.+?)\s*{CHUNK_END}",
-        raw,
-        flags=re.DOTALL,
-    )
+    pattern = rf"(?:^|\n){CHUNK_BEGIN}\n(?P<data>.+?)(?:\n){CHUNK_END}(?:\n|$)"
+    match = re.search(pattern, raw, flags=re.DOTALL)
 
     if not match:
         return ""
@@ -97,9 +94,6 @@ def fast_download(child, remote_path: str, local_path: str) -> None:
             child.expect(PROMPT_RE, timeout=120)
 
             raw = clean_output(child.before)
-            start_idx = raw.find(CHUNK_BEGIN)
-            if start_idx != -1:
-                raw = raw[start_idx:]
 
             b64 = _extract_base64_payload(raw)
 
