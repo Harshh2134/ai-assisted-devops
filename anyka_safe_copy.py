@@ -91,11 +91,13 @@ def fast_download(child, remote_path: str, local_path: str) -> None:
             )
 
             child.sendline(cmd)
+            # Wait for explicit chunk delimiters to avoid parsing prompt echoes.
+            child.expect(CHUNK_BEGIN, timeout=120)
+            child.expect(CHUNK_END, timeout=120)
+            payload = clean_output(child.before)
             child.expect(PROMPT_RE, timeout=120)
 
-            raw = clean_output(child.before)
-
-            b64 = _extract_base64_payload(raw)
+            b64 = _extract_base64_payload(f"{CHUNK_BEGIN}\n{payload}\n{CHUNK_END}")
 
             if not b64:
                 print(f"\n⚠️ Empty chunk detected at offset {offset}. Retrying...")
