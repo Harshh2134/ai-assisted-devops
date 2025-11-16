@@ -97,6 +97,10 @@ def fast_download(child, remote_path: str, local_path: str) -> None:
             child.expect(PROMPT_RE, timeout=120)
 
             raw = clean_output(child.before)
+            start_idx = raw.find(CHUNK_BEGIN)
+            if start_idx != -1:
+                raw = raw[start_idx:]
+
             b64 = _extract_base64_payload(raw)
 
             if not b64:
