@@ -13,7 +13,9 @@ CHUNK_SIZE = 1024 * 512  # 512 KB
 
 ANSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 PROMPT_RE = re.compile(r"\[root@anyka.*\]\$")
-BASE64_LINE_RE = re.compile(r"^[A-Za-z0-9+/=]+$")
+BASE64_LINE_RE = re.compile(r"[A-Za-z0-9+/=]+")
+CHUNK_BEGIN = "__CHUNK_BEGIN__"
+CHUNK_END = "__CHUNK_END__"
 
 
 def clean_output(text: Optional[str]) -> str:
@@ -52,19 +54,20 @@ def list_ts_files(child, date: str, folder: str) -> List[str]:
     return [p for p in parts if p.endswith(".TS")]
 
 
-def _extract_base64_payload(raw: str, cmd: str) -> str:
-    """Return a contiguous base64 payload from telnet command output."""
-    payload_lines: List[str] = []
+def _extract_base64_payload(raw: str) -> str:
+    """Return a contiguous base64 payload delimited by chunk markers."""
+    match = re.search(
+        rf"{CHUNK_BEGIN}\s*(?P<data>.+?)\s*{CHUNK_END}",
+        raw,
+        flags=re.DOTALL,
+    )
 
-    for line in raw.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped == cmd:
-            continue
+    if not match:
+        return ""
 
-        if BASE64_LINE_RE.fullmatch(stripped):
-            payload_lines.append(stripped)
-
-    return "".join(payload_lines)
+    payload = match.group("data")
+    fragments = BASE64_LINE_RE.findall(payload)
+    return "".join(fragments)
 
 
 def fast_download(child, remote_path: str, local_path: str) -> None:
@@ -85,13 +88,16 @@ def fast_download(child, remote_path: str, local_path: str) -> None:
 
         while offset < total_size:
             count = min(CHUNK_SIZE, total_size - offset)
-            cmd = f"dd if='{remote_path}' bs=1 skip={offset} count={count} 2>/dev/null | base64"
+            dd_cmd = f"dd if='{remote_path}' bs=1 skip={offset} count={count} 2>/dev/null"
+            cmd = (
+                f"(printf '{CHUNK_BEGIN}\\n'; {dd_cmd} | base64; printf '\\n{CHUNK_END}\\n')"
+            )
 
             child.sendline(cmd)
             child.expect(PROMPT_RE, timeout=120)
 
             raw = clean_output(child.before)
-            b64 = _extract_base64_payload(raw, cmd)
+            b64 = _extract_base64_payload(raw)
 
             if not b64:
                 print(f"\n⚠️ Empty chunk detected at offset {offset}. Retrying...")
